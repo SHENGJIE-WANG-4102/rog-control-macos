@@ -59,7 +59,8 @@ int main(){ROGFirmwareProbe p;auto reset=[](){assert(g.refs==0);g=State{};};
  g.ec=false;assert(p.factoryMode(0)==kIOReturnNotFound&&!g.writes&&!g.queries);reset();
  g.wrongName=true;assert(p.factoryMode(0)==kIOReturnNotFound&&!g.writes&&!g.queries);reset();
  g.power=0;assert(p.factoryMode(0)==kIOReturnNotReady&&!g.writes&&!g.queries);reset();
- g.mode=4;assert(p.factoryMode(0)==kIOReturnNotReady&&!g.writes&&!g.queries);reset();
+ g.mode=3;assert(p.factoryMode(0)==kIOReturnNotReady&&!g.writes&&!g.queries);reset();
+ g.mode=4;assert(p.factoryMode(1)==0&&g.mode==1&&g.writes==1);reset();
  g.readError=true;assert(p.factoryMode(0)==kIOReturnNotReady&&!g.writes&&!g.queries);reset();
  g.present=false;assert(p.factoryMode(0)==kIOReturnUnsupported&&!g.writes&&g.queries==1);reset();
  g.queryStatus=7;assert(p.factoryMode(0)==7&&!g.writes);reset();
@@ -83,6 +84,6 @@ with tempfile.TemporaryDirectory() as temporary:
 # never gain ACPI reads/writes or asynchronous firmware callbacks.
 for start,end in [('bool ROGFirmwareProbe::start','void ROGFirmwareProbe::stop'),('void ROGFirmwareProbe::stop','void ROGFirmwareProbe::free'),('void ROGFirmwareProbe::free','bool ROGFirmwareProbe::verifyFirmware')]:
     body=source[source.index(start):source.index(end)]
-    assert not any(x in body for x in ['evaluateObject','evaluateInteger','factoryMode(','modeWmi(','snapshot(','verifyFirmware(','IOTimer','thread_call'])
+    assert not any(x in body for x in ['evaluateObject','evaluateInteger','factoryMode(','modeWmi(','snapshot(','verifyFirmware(','tuningCommand(','tuningWmi(','tuneCurve(','tunePower(','IOTimer','thread_call'])
 assert source.count('device->evaluateObject("WMNB"')==1
 print('PASS: no firmware calls in start/stop/free; single fixed WMNB dispatch site')

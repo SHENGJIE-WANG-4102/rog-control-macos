@@ -12,8 +12,9 @@ COMMON=(-fobjc-arc -target x86_64-apple-macos14.0 -Wall -Wextra -Werror -I"$ROOT
 SHARED=("$ROOT_DIR/Sources/Bridge.m" "$ROOT_DIR/Sources/Sensors.m" "$ROOT_DIR/Sources/RMSensors.m")
 /usr/bin/clang "${COMMON[@]}" "$ROOT_DIR/Sources/Helper.m" "${SHARED[@]}" -framework Foundation -framework IOKit -framework Security -o "$BUILD/ROGControlHelper"
 /usr/bin/codesign --force --sign - --timestamp=none "$BUILD/ROGControlHelper"
-/usr/bin/clang "${COMMON[@]}" "$ROOT_DIR/Sources/App.m" "${SHARED[@]}" -framework Cocoa -framework IOKit -o "$APP/Contents/MacOS/ROGControl"
+/usr/bin/clang "${COMMON[@]}" "$ROOT_DIR/Sources/App.m" "$ROOT_DIR/Sources/TuningController.m" "$ROOT_DIR/Sources/TuningPreset.m" "$ROOT_DIR/Sources/TuningCurveView.m" "${SHARED[@]}" -framework Cocoa -framework IOKit -framework UniformTypeIdentifiers -o "$APP/Contents/MacOS/ROGControl"
 /usr/bin/clang "${COMMON[@]}" "$ROOT_DIR/Tools/profile-client.m" -framework Foundation -framework IOKit -o "$BUILD/profile-client"
+/usr/bin/clang "${COMMON[@]}" "$ROOT_DIR/Tools/tuning-client.m" "${SHARED[@]}" -framework Foundation -framework IOKit -o "$BUILD/tuning-client"
 /bin/cp "$BUILD/ROGControlHelper" "$APP/Contents/Resources/ROGControlHelper"
 HELPER_HASH=$(/usr/bin/shasum -a 256 "$BUILD/ROGControlHelper" | /usr/bin/awk '{print $1}')
 cat > "$APP/Contents/Info.plist" <<PLIST
@@ -25,7 +26,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <key>CFBundleExecutable</key><string>ROGControl</string>
 <key>CFBundleIdentifier</key><string>com.macdriver.ROGControl</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleVersion</key><string>3</string>
+<key>CFBundleVersion</key><string>4</string>
 <key>CFBundleShortVersionString</key><string>$VERSION</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>

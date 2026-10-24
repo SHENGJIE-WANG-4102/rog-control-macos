@@ -1,6 +1,6 @@
 // G815LW on-demand factory-profile bridge. No ACPI calls at start/stop/free.
-// Only root may explicitly request modes 0,1,2 using ASUS WMNB DEVS 0x120075.
-// No raw EC writes, fan curves, power-limit writes, timers, or brightness API.
+// Only administrator requests reach fixed ASUS endpoints; no raw EC/MSR API.
+// Curves and PL1/PL2 are explicit transactions, never startup/timer callbacks.
 #include <IOKit/IOService.h>
 #include <IOKit/IOUserClient.h>
 #include <IOKit/IOLocks.h>
@@ -9,6 +9,7 @@
 #include <mach/task.h>
 #include <mach/kmod.h>
 #include "Profiles.hpp"
+#include "TuningPolicy.hpp"
 
 class ROGFirmwareProbe : public IOService {
     OSDeclareDefaultStructors(ROGFirmwareProbe)
@@ -17,12 +18,21 @@ class ROGFirmwareProbe : public IOService {
     IOLock *lock {nullptr};
     bool stopped {true};
     uint64_t serial {0};
+    ROGTuningState tuning {};
+    struct TuningIO;
     bool verifyFirmware();
     IOReturn readByte(IOACPIPlatformDevice *ec,const char *field,uint32_t &value);
     IOReturn readFan(IOACPIPlatformDevice *ec,unsigned index,uint32_t &rpm);
     IOReturn snapshot();
     IOReturn factoryMode(uint32_t);
     IOReturn modeWmi(uint32_t,uint32_t,uint32_t &);
+    IOReturn tuningWmi(uint32_t,uint32_t,const uint8_t *,unsigned,OSObject **);
+    bool tuneCurve(unsigned,uint32_t,ROGFanCurve &,bool);
+    bool tunePower(unsigned,uint32_t,bool);
+    bool tuneContext(uint32_t &,uint32_t &);
+    bool tuneReadPower(uint32_t &,uint32_t &);
+    void publishTuning();
+    IOReturn tuningCommand(unsigned,const ROGTuningRequest *);
 public:
     bool init(OSDictionary *) override;
     bool start(IOService *) override;
@@ -43,9 +53,10 @@ bool ROGFirmwareProbe::start(IOService *provider) {
     auto uid=OSDynamicCast(OSString,provider->getProperty("_UID"));
     if (!uid||!uid->isEqualTo("ATK")||!IOService::start(provider)) return false;
     device=candidate;device->retain();stopped=false;
-    setProperty("BridgeVersion","1.3.0");
+    setProperty("BridgeVersion","1.5.0");
     setProperty("ReadOnly",false);
-    setProperty("FactoryModesOnly",true);setProperty("OnDemandOnly",true);
+    setProperty("FactoryModesOnly",false);setProperty("OnDemandOnly",true);
+    setProperty("TuningImplemented",true);setProperty("MaximumPowerWatts",ROGPowerMaxW,32);
     setProperty("FirmwareQueriesAtStart",static_cast<uint64_t>(0),32);
     setProperty("QueryState","awaiting-explicit-refresh");
     registerService();return true;
@@ -78,7 +89,7 @@ bool ROGFirmwareProbe::verifyFirmware() {
 }
 IOReturn ROGFirmwareProbe::readByte(IOACPIPlatformDevice *ec,const char *field,uint32_t &value) {
     // Only literal FieldUnit names from the audited DSDT are allowed.
-    const char *allowed[]={"FANM","ACIN","FA1L","FA1H","FA2L","FA2H","FA3L","FA3H"};
+    const char *allowed[]={"FANM","ACIN","FA1L","FA1H","FA2L","FA2H","FA3L","FA3H","M6F0","M6F1"};
     bool permitted=false;
     for (auto name:allowed) if (!strcmp(name,field)) { permitted=true;break; }
     if (!permitted) return kIOReturnUnsupported;
@@ -168,6 +179,7 @@ IOReturn ROGFirmwareProbe::snapshot() {
     setProperty("QueryState",overall==kIOReturnSuccess?"completed":"failed-or-partial");
     return overall;
 }
+#include "Tuning.inc"
 IOReturn ROGFirmwareProbe::modeWmi(uint32_t operation,uint32_t value,uint32_t &raw) {
     // Neither the device id nor the ACPI method name comes from userspace.
     if (operation!=0x53545344U && operation!=0x53564544U) return kIOReturnUnsupported;
@@ -196,7 +208,7 @@ IOReturn ROGFirmwareProbe::factoryMode(uint32_t mode) {
     IOReturn status=kIOReturnNotReady;
     uint32_t power=0,before=0,after=0,support=0,reply=0;
     if (!ec||strcmp(ec->getName(),"EC0")) status=kIOReturnNotFound;
-    else if (readByte(ec,"ACIN",power)||power!=1||readByte(ec,"FANM",before)||before>2)
+    else if (readByte(ec,"ACIN",power)||power!=1||readByte(ec,"FANM",before)||(before>2&&before!=4))
         status=kIOReturnNotReady;
     else if (before==mode) status=kIOReturnSuccess;
     else {
@@ -235,20 +247,35 @@ IOReturn ROGFirmwareProbe::setProperties(OSObject *properties) {
     if (!dict||dict->getCount()!=1) return kIOReturnUnsupported;
     bool refresh=dict->getObject("Refresh")==kOSBooleanTrue;
     auto requested=OSDynamicCast(OSNumber,dict->getObject("FactoryMode"));
-    if (!refresh&&!requested) return kIOReturnUnsupported;
+    bool tuneRead=dict->getObject("TuningRead")==kOSBooleanTrue;
+    bool tuneRestore=dict->getObject("TuningRestore")==kOSBooleanTrue;
+    auto tuneApply=OSDynamicCast(OSDictionary,dict->getObject("TuningApply"));
+    if (!refresh&&!requested&&!tuneRead&&!tuneRestore&&!tuneApply) return kIOReturnUnsupported;
     if (requested&&requested->unsigned64BitValue()>2) return kIOReturnBadArgument;
+    ROGTuningRequest tuningRequest={};
+    if(tuneApply){
+        if(tuneApply->getCount()!=3)return kIOReturnBadArgument;
+        auto pl1=OSDynamicCast(OSNumber,tuneApply->getObject("pl1"));auto pl2=OSDynamicCast(OSNumber,tuneApply->getObject("pl2"));
+        auto curves=OSDynamicCast(OSArray,tuneApply->getObject("curves"));
+        if(!pl1||!pl2||pl1->unsigned64BitValue()>ROGPowerMaxW||pl2->unsigned64BitValue()>ROGPowerMaxW||!curves||curves->getCount()!=3)return kIOReturnBadArgument;
+        tuningRequest.pl1=pl1->unsigned32BitValue();tuningRequest.pl2=pl2->unsigned32BitValue();
+        for(unsigned i=0;i<3;i++){auto points=OSDynamicCast(OSArray,curves->getObject(i));if(!points||points->getCount()!=16)return kIOReturnBadArgument;
+            for(unsigned j=0;j<16;j++){auto n=OSDynamicCast(OSNumber,points->getObject(j));if(!n||n->unsigned64BitValue()>255)return kIOReturnBadArgument;tuningRequest.curves[i].bytes[j]=n->unsigned8BitValue();}}
+        if(!ROGValidTuning(tuningRequest))return kIOReturnBadArgument;
+    }
     if (!IOLockTryLock(lock)) return kIOReturnBusy;
     IOReturn status=kIOReturnNotReady;
     if (!stopped&&device&&!isInactive()) {
         if (refresh) status=snapshot();
-        else status=factoryMode(requested->unsigned32BitValue());
+        else if(requested){status=factoryMode(requested->unsigned32BitValue());if(!status){tuning=ROGTuningState{};publishTuning();}}
+        else status=tuningCommand(tuneRead?0:tuneApply?1:2,tuneApply?&tuningRequest:nullptr);
     }
     IOLockUnlock(lock);return status;
 }
 extern "C" {
 extern kern_return_t _start(kmod_info_t *,void *);
 extern kern_return_t _stop(kmod_info_t *,void *);
-KMOD_EXPLICIT_DECL(com.macdriver.ROGFirmwareProbe,"1.3.0",_start,_stop)
+KMOD_EXPLICIT_DECL(com.macdriver.ROGFirmwareProbe,"1.5.0",_start,_stop)
 __private_extern__ kmod_start_func_t *_realmain=nullptr;
 __private_extern__ kmod_stop_func_t *_antimain=nullptr;
 __private_extern__ int _kext_apple_cc=__APPLE_CC__;

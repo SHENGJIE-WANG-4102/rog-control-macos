@@ -2,6 +2,29 @@
 
 [简体中文](CHANGELOG.zh-CN.md) · [README](README.md)
 
+## v0.3 — 2026-10-25
+
+### Added
+
+- Custom eight-point curves for the CPU, GPU, and third fan, plus CPU PL1/PL2 targets with **5 ≤ PL1 ≤ PL2 ≤ 175 W** validation in the GUI, helper, and kernel.
+- Direct graph editing synchronized with the table: 20–100°C and 0–100% axes, 10-unit grids, 1°C/1% steps, and automatic adjustment of affected points when demand crosses its neighbours.
+- A temperature-interpolated lower bound from each fan's quiet preset, including intervals and endpoint extension. The final point is adjustable rather than locked to 100%.
+- JSON preset saving/loading with format, model, shape, and value checks. Loading and editing change the draft; hardware application remains explicit.
+- Bridge **1.5.0** reads factory and quiet curves on explicit request, validates the complete curve floor, reads back firmware power targets, and attempts confirmed factory-profile recovery after partial failure. Startup and sensor refresh do not issue tuning queries or writes.
+
+### Changed
+
+- Combine monitoring and tuning into tabs within one window. Switching tabs and background refresh preserve drafts and editing focus.
+- Remove persistent explanatory text from the interface; retain necessary validation and concise operation feedback.
+- Correct bridge-version documentation and the stale old-driver hint after reconnecting to a supported bridge.
+
+### Validation and limitations
+
+- Supports the ROG 枪神 9 series; **only G815LW has been tested on real hardware**.
+- Application/driver builds, signing checks, static analysis, firmware/RM/request tests, preset roundtrips, mouse gestures, 4096 curve-invariant cases, and single-window navigation tests passed.
+- Earlier **1.4.0** trials verified factory-curve reads, fan response, 80/100 W and 175/175 W target readbacks, and restoration to Turbo. A roughly 12-second, 24-thread maximum-settings test recorded a highest temperature reading of 75°C.
+- **1.5.0 quiet-preset reads and the new editing policy still require post-restart hardware validation.** Existing 1.4.0 trials do not establish these results. Sustained power enforcement and long-term stability remain unverified; fast SMC power samples showed alternating zeros and peaks. PL3/PL4 and GPU TGP are not modified.
+
 ## v0.2 — 2026-10-25
 
 ### Added

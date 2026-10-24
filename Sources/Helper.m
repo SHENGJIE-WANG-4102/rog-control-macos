@@ -96,10 +96,10 @@ static int serve(void) {
         if(getpeereid(client,&peerUid,&peerGid)||peerUid!=uid||getsockopt(client,SOL_LOCAL,LOCAL_PEERPID,&peerPid,&length)||!approved(peerPid,uid,hash)){close(client);continue;}
         struct timeval timeout={2,0};setsockopt(client,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));setsockopt(client,SOL_SOCKET,SO_SNDTIMEO,&timeout,sizeof(timeout));
         NSMutableData *wire=[NSMutableData data];BOOL complete=NO;
-        for(unsigned i=0;i<1024;i++){char byte;ssize_t n=read(client,&byte,1);if(n!=1)break;if(byte=='\n'){complete=YES;break;}[wire appendBytes:&byte length:1];}
+        for(unsigned i=0;i<4096;i++){char byte;ssize_t n=read(client,&byte,1);if(n!=1)break;if(byte=='\n'){complete=YES;break;}[wire appendBytes:&byte length:1];}
         id request=complete?[NSJSONSerialization JSONObjectWithData:wire options:NSJSONReadingFragmentsAllowed error:NULL]:nil;
         if(!ROGValidRequest(request)||[request[@"command"] isEqual:@"quit"])reply(client,@{@"error":@"不支持的请求。",@"CommandIOReturn":@1});
-        else reply(client,ROGRead(request[@"command"],request[@"mode"]));
+        else reply(client,ROGReadRequest(request));
         close(client);
     }}
 }
