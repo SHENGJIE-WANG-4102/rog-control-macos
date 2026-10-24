@@ -1,0 +1,13 @@
+.DS_Store
+build/
+dist/
+Vendor/
+*.o
+*.dSYM/
+__pycache__/
+*.pyc
+*.log
+*.kc
+*.kext/
+*.app/
+.codex/
