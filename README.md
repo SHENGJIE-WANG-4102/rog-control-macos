@@ -1,6 +1,6 @@
 # ROG Control for macOS
 
-[简体中文](README.zh-CN.md) · English · **v0.1** · [Changelog](CHANGELOG.md)
+[简体中文](README.zh-CN.md) · English · **v0.2** · [Changelog](CHANGELOG.md)
 
 A native macOS control panel targeting the **ASUS ROG 枪神 9 series**: factory performance profiles, fan monitoring, and CPU/GPU sensor views.
 
@@ -17,7 +17,8 @@ A native macOS control panel targeting the **ASUS ROG 枪神 9 series**: factory
 | CPU temperature | Reads the existing SMC temperature provider |
 | CPU package power | Reads the SMC package-energy provider; not the core-only power key |
 | CPU frequency | Attempts `powermetrics` interval-average frequency; unavailable if the platform does not report it |
-| GPU frequency, power, temperature | UI slots provided; not yet implemented for the tested NVIDIA RM backend; a valid SMC temperature reading is used if available |
+| GPU frequency, power, temperature | Read-only NVIDIA RM shared telemetry; tested with NullMoth NVRM 2.4.3 / NVIDIA 610.57.04 on RTX 5080 Laptop |
+| Allocated VRAM, memory temperature/clock, GPU utilization | Tested through the same RM backend; one-second GUI refresh |
 | Authorization | One-time privileged helper installation; subsequent launches connect without a password |
 | Custom power limits / fan curves | Not enabled |
 | Brightness, keyboard lighting | Not implemented |
@@ -25,6 +26,20 @@ A native macOS control panel targeting the **ASUS ROG 枪神 9 series**: factory
 The app does not invent sensor values. Missing data is displayed as unavailable. CPU power is a sensor-derived estimate for the CPU package, not whole-laptop wall power. Average CPU frequency is not the peak clock of the fastest core.
 
 Factory profiles can influence firmware behaviour, but the application does not claim that custom PL1/PL2 or GPU TGP control has been validated.
+
+### NVIDIA telemetry (v0.2)
+
+The RM reader opens its own client, reads a read-only `RM_USER_SHARED_DATA` mapping, and frees its objects and mapping after each snapshot. It does not initialize/reset the GPU, read raw registers, change clocks/power limits, or modify the installed graphics driver. It also works without administrator privileges. The control service still requires authorization for firmware profile changes and CPU sampling.
+
+RUSD has no negotiated layout version. The backend currently accepts only the tested NVRM **2.4.3** pairing; other versions remain unavailable until their ABI is checked. Invalid, inconsistent, out-of-range, or stale polled fields are rejected individually. Freshness requires observed RM timestamp advancement and expires after three seconds without an update, measured with a local monotonic clock. RM timestamps are not compared directly to the system wall clock. Startup/after idle can need up to half a second to confirm an update. PMA allocation statistics use NVIDIA's sequence counter instead.
+
+The main GPU power value is **instantaneous GPU power**, not a configured TGP limit. The diagnostic JSON also includes average GPU power, memory-controller busy percentage, and P-state. **Allocated VRAM / total** describes RM's allocatable PMA pool, excluding reserved VRAM; it is not the physical memory capacity printed on the GPU specification. Memory-controller busy percentage is not VRAM allocation. The memory clock is the reported actual clock, not an effective GDDR data rate.
+
+Read the sensors without a firmware request or administrator privileges:
+
+```sh
+"dist/ROG Control for macOS.app/Contents/MacOS/ROGControl" --read-sensors
+```
 
 ## Build and run
 
@@ -85,7 +100,7 @@ This removes the user-space control service. It leaves the separately installed 
 ./script/test.sh
 ```
 
-These tests check request validation and the actual firmware-command methods against a host simulator. They do not prove BIOS responsiveness or hardware compatibility. On-device testing verified Silent and Performance mode changes, all three fan readings, and restoration to the original Turbo profile.
+These tests check request validation, the actual firmware-command methods against a host simulator, and the RM reader with mocked transport, stale/invalid fields, units, version rejection, and cleanup failures. They do not prove BIOS responsiveness or hardware compatibility. On-device testing verified Silent and Performance mode changes, all three fan readings, restoration to the original Turbo profile, and live RM telemetry on the tested GPU/driver pairing.
 
 Firmware calls are synchronous. A user-space timeout cannot cancel a stuck ACPI/SMI call. The driver evaluates no firmware objects during `start`, `stop`, or `free`; write operations are explicit, restricted to the factory-profile endpoint, and do not expose arbitrary ACPI, EC, or MSR access. Custom fan-curve/power paths remain disabled pending further validation.
 

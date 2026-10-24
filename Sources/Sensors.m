@@ -1,4 +1,5 @@
 #import "Sensors.h"
+#import "RMSensors.h"
 #import <IOKit/IOKitLib.h>
 #include <unistd.h>
 #include <math.h>
@@ -56,7 +57,9 @@ NSDictionary *ROGHardwareSensors(BOOL refresh) {
     NSNumber *mhz=[hz isKindOfClass:NSNumber.class]?@([hz doubleValue]/1e6):nil;
     // PCPC is mapped to core-domain power by SMCProcessor. PCPR is the package
     // energy domain; do not label the core-only PCPC number as package power.
+    NSDictionary *rm=ROGRMSensors();NSMutableDictionary *gpu=[rm[@"GPU"] mutableCopy]?:[NSMutableDictionary dictionary];
+    if(![gpu[@"temperature"][@"available"] boolValue])gpu[@"temperature"]=metric(gpuTemperature,@"°C",@"SMC TG0D / TG0P",5,125);
+    for(NSString *key in @[@"power",@"frequency"])if(!gpu[key])gpu[key]=@{@"available":@NO,@"unit":[key isEqual:@"power"]?@"W":@"MHz"};
     return @{@"CPU":@{@"temperature":metric(temperature,@"°C",@"SMC TC0P",5,125),@"power":metric(package,@"W",@"SMC PCPR · CPU package",0,500),@"frequency":metric(mhz,@"MHz",@"powermetrics · interval average",10,10000)},
-             @"GPU":@{@"temperature":metric(gpuTemperature,@"°C",@"SMC TG0D / TG0P",5,125),@"power":@{@"available":@NO,@"unit":@"W"},@"frequency":@{@"available":@NO,@"unit":@"MHz"}},
-             @"GPUStatus":@"GPU 监控后端尚未适配当前驱动；未读到有效数据的项目显示为不可用。"};
+             @"GPU":gpu,@"GPUStatus":rm[@"status"]};
 }

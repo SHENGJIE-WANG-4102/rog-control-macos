@@ -129,7 +129,18 @@ static NSDictionary *request(NSString *path,NSDictionary *command) {
     NSStackView *tools=stack(@[self.refreshButton,self.automatic,[NSView new],self.progress],NSUserInterfaceLayoutOrientationHorizontal,14);
     self.message=label(@"仅接通电源时可切换档位。监控读数不会自动改变所选档位。",12,NO);self.message.lineBreakMode=NSLineBreakByWordWrapping;self.message.maximumNumberOfLines=2;self.message.hidden=YES;updateColor(self.message,NSColor.secondaryLabelColor);
     NSStackView *sensorRow=stack(sensorCards,NSUserInterfaceLayoutOrientationHorizontal,12);sensorRow.distribution=NSStackViewDistributionFillEqually;
-    NSStackView *root=stack(@[header,modeCard,fans,sensorRow,powerCard,tools,self.message],NSUserInterfaceLayoutOrientationVertical,14);self.rootView=root;
+    NSMutableArray *gpuColumns=[NSMutableArray array];
+    NSArray *gpuKeys=@[@"memoryUsed",@"memoryTemperature",@"memoryFrequency",@"utilization"],*gpuTitles=@[@"显存分配",@"显存温度",@"显存时钟",@"GPU 利用率"];
+    for(NSUInteger i=0;i<gpuKeys.count;i++){
+        NSTextField *caption=label(gpuTitles[i],11,NO);caption.textColor=NSColor.secondaryLabelColor;
+        NSTextField *number=label(@"不可用",17,YES);number.font=[NSFont monospacedDigitSystemFontOfSize:17 weight:NSFontWeightMedium];
+        self.sensorValues[[NSString stringWithFormat:@"GPU.%@",gpuKeys[i]]]=number;
+        [gpuColumns addObject:stack(@[caption,number],NSUserInterfaceLayoutOrientationVertical,6)];
+    }
+    NSStackView *gpuRow=stack(gpuColumns,NSUserInterfaceLayoutOrientationHorizontal,12);gpuRow.distribution=NSStackViewDistributionFillEqually;
+    NSStackView *gpuBody=stack(@[label(@"显存与负载",14,YES),gpuRow],NSUserInterfaceLayoutOrientationVertical,12);
+    [gpuRow.widthAnchor constraintEqualToAnchor:gpuBody.widthAnchor].active=YES;NSView *gpuCard=card(gpuBody);
+    NSStackView *root=stack(@[header,modeCard,fans,sensorRow,gpuCard,powerCard,tools,self.message],NSUserInterfaceLayoutOrientationVertical,14);self.rootView=root;
     NSScrollView *scroll=[NSScrollView new];scroll.hasVerticalScroller=YES;scroll.autohidesScrollers=YES;scroll.drawsBackground=NO;
     NSView *content=self.window.contentView;[content addSubview:scroll];scroll.translatesAutoresizingMaskIntoConstraints=NO;
     [NSLayoutConstraint activateConstraints:@[[scroll.leadingAnchor constraintEqualToAnchor:content.leadingAnchor],[scroll.trailingAnchor constraintEqualToAnchor:content.trailingAnchor],[scroll.topAnchor constraintEqualToAnchor:content.topAnchor],[scroll.bottomAnchor constraintEqualToAnchor:content.bottomAnchor]]];
@@ -137,7 +148,7 @@ static NSDictionary *request(NSString *path,NSDictionary *command) {
     [NSLayoutConstraint activateConstraints:@[[self.document.widthAnchor constraintEqualToAnchor:scroll.contentView.widthAnchor],[self.document.leadingAnchor constraintEqualToAnchor:scroll.contentView.leadingAnchor],[self.document.topAnchor constraintEqualToAnchor:scroll.contentView.topAnchor]]];
     [self.document addSubview:root];root.translatesAutoresizingMaskIntoConstraints=NO;
     [NSLayoutConstraint activateConstraints:@[[root.leadingAnchor constraintEqualToAnchor:self.document.leadingAnchor constant:24],[root.trailingAnchor constraintEqualToAnchor:self.document.trailingAnchor constant:-24],[root.topAnchor constraintEqualToAnchor:self.document.topAnchor constant:24],[root.bottomAnchor constraintEqualToAnchor:self.document.bottomAnchor constant:-24]]];
-    for(NSView *v in @[header,modeCard,fans,sensorRow,powerCard,tools,self.message])[v.widthAnchor constraintEqualToAnchor:root.widthAnchor].active=YES;
+    for(NSView *v in @[header,modeCard,fans,sensorRow,gpuCard,powerCard,tools,self.message])[v.widthAnchor constraintEqualToAnchor:root.widthAnchor].active=YES;
     [self.window center];[self.window makeKeyAndOrderFront:nil];[NSApp activateIgnoringOtherApps:YES];
     [self prepareSession];[self render:ROGRead(@"status",nil) live:NO];[self updateControls];
     self.timer=[NSTimer scheduledTimerWithTimeInterval:1 target:self selector:@selector(tick:) userInfo:nil repeats:YES];
@@ -171,10 +182,13 @@ static NSDictionary *request(NSString *path,NSDictionary *command) {
     if(response[@"error"]){updateText(self.message,response[@"error"]);updateColor(self.message,NSColor.systemOrangeColor);self.message.hidden=NO;}
     else self.message.hidden=YES;
     NSDictionary *sensors=response[@"Sensors"];
-    for(NSString *device in @[@"CPU",@"GPU"])for(NSString *key in @[@"temperature",@"frequency",@"power"]){
+    for(NSString *device in @[@"CPU",@"GPU"])for(NSString *key in @[@"temperature",@"frequency",@"power",@"memoryUsed",@"memoryTemperature",@"memoryFrequency",@"utilization"]){
         NSDictionary *metric=sensors[device][key];NSTextField *field=self.sensorValues[[NSString stringWithFormat:@"%@.%@",device,key]];
         BOOL available=[metric[@"available"] boolValue]&&[metric[@"value"] isKindOfClass:NSNumber.class];
-        if(available){double value=[metric[@"value"] doubleValue];NSString *unit=metric[@"unit"];if([key isEqual:@"frequency"]&&value>=1000){value/=1000;unit=@"GHz";}updateText(field,[NSString stringWithFormat:@"%.1f %@",value,unit]);updateColor(field,NSColor.labelColor);updateTooltip(field,metric[@"source"]);}
+        if(available){double value=[metric[@"value"] doubleValue];NSString *unit=metric[@"unit"];if(([key isEqual:@"frequency"]||[key isEqual:@"memoryFrequency"])&&value>=1000){value/=1000;unit=@"GHz";}
+            NSString *text=[NSString stringWithFormat:@"%.1f %@",value,unit];
+            if([key isEqual:@"memoryUsed"]){NSDictionary *total=sensors[device][@"memoryTotal"];if([total[@"available"] boolValue])text=[NSString stringWithFormat:@"%.1f / %.1f GiB",value,[total[@"value"] doubleValue]];}
+            updateText(field,text);updateColor(field,NSColor.labelColor);updateTooltip(field,metric[@"source"]);}
         else{updateText(field,@"不可用");updateColor(field,NSColor.tertiaryLabelColor);updateTooltip(field,[device isEqual:@"GPU"]?sensors[@"GPUStatus"]:@"当前传感器没有提供有效读数。");}
     }
     if(!live&&!self.connected){

@@ -2,6 +2,34 @@
 
 [简体中文](CHANGELOG.zh-CN.md) · [README](README.md)
 
+## v0.2 — 2026-10-25
+
+### Added
+
+- Read-only NVIDIA RM monitoring for GPU temperature, actual graphics clock, and instantaneous GPU power.
+- A VRAM and load panel showing allocated VRAM / allocatable pool, memory temperature, actual memory clock, and GPU utilization, with one-second incremental updates.
+- Average GPU power, memory-controller busy percentage, P-state, and raw sample timestamps in diagnostic JSON.
+- Driver-version, shared-data sequence, bounds, unit, and range validation. Each snapshot releases its private RM client, objects, and read-only mapping; no graphics-driver, boot-argument, display, or power-policy changes are required.
+- Mocked RM transport tests covering the query allowlist, unsupported versions, units, stale/invalid fields, mapping bounds, and cleanup on request failures.
+- NVIDIA MIT ABI notices in the source, third-party documentation, and built application.
+
+### Fixed
+
+- Live GPU readings becoming unavailable when RM timestamps differ from the system wall clock. Freshness now requires observed timestamp advancement and uses a local monotonic clock to reject fields frozen for more than three seconds.
+- Reconfirm sensor updates after a long idle period or a backwards RM timestamp. Invalid fields are rejected individually rather than filled with estimated values.
+
+### Compatibility and validation
+
+- Supports the ASUS ROG 枪神 9 series; **only G815LW has been tested on real hardware**. GPU monitoring was tested with RTX 5080 Laptop, NullMoth NVRM **2.4.3**, and NVIDIA **610.57.04** on macOS 26.
+- Thirty continuous snapshots had no invalid readings after initialization. GUI readings, pending-profile selection during refresh, password-free relaunch, and idle helper behavior were verified. Internal 240 Hz and external 160 Hz remained available.
+- Application builds, signature validation, static analysis, firmware contract tests, and RM transport/failure-path tests passed.
+
+### Limitations
+
+- Other RM versions remain disabled until their shared-data layout is checked. Initial readings may need the next polling cycle to confirm timestamp advancement.
+- VRAM totals describe RM's allocatable pool after reserved memory; memory clock is not an effective GDDR data rate. GPU power is a measured reading, not a configured TGP limit.
+- Custom power limits, manual fan curves, brightness, and keyboard lighting remain disabled.
+
 ## v0.1 — 2026-10-25
 
 First public source release of ROG Control for macOS.

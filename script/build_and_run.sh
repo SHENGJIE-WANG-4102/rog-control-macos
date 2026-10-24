@@ -9,7 +9,7 @@ case "$MODE" in run|--verify|--logs|--telemetry|--debug|--build-only) ;; *) echo
 if [[ "$MODE" != --build-only ]]; then /usr/bin/pkill -x ROGControl >/dev/null 2>&1 || true; fi
 /bin/mkdir -p "$BUILD" "$APP/Contents/MacOS" "$APP/Contents/Resources"
 COMMON=(-fobjc-arc -target x86_64-apple-macos14.0 -Wall -Wextra -Werror -I"$ROOT_DIR/Sources")
-SHARED=("$ROOT_DIR/Sources/Bridge.m" "$ROOT_DIR/Sources/Sensors.m")
+SHARED=("$ROOT_DIR/Sources/Bridge.m" "$ROOT_DIR/Sources/Sensors.m" "$ROOT_DIR/Sources/RMSensors.m")
 /usr/bin/clang "${COMMON[@]}" "$ROOT_DIR/Sources/Helper.m" "${SHARED[@]}" -framework Foundation -framework IOKit -framework Security -o "$BUILD/ROGControlHelper"
 /usr/bin/codesign --force --sign - --timestamp=none "$BUILD/ROGControlHelper"
 /usr/bin/clang "${COMMON[@]}" "$ROOT_DIR/Sources/App.m" "${SHARED[@]}" -framework Cocoa -framework IOKit -o "$APP/Contents/MacOS/ROGControl"
@@ -25,7 +25,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <key>CFBundleExecutable</key><string>ROGControl</string>
 <key>CFBundleIdentifier</key><string>com.macdriver.ROGControl</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleVersion</key><string>2</string>
+<key>CFBundleVersion</key><string>3</string>
 <key>CFBundleShortVersionString</key><string>$VERSION</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>
@@ -34,6 +34,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </dict></plist>
 PLIST
 if [[ -f "$ROOT_DIR/LICENSE" ]]; then /bin/cp "$ROOT_DIR/LICENSE" "$APP/Contents/Resources/LICENSE"; fi
+/bin/cp "$ROOT_DIR/THIRD_PARTY.md" "$APP/Contents/Resources/THIRD_PARTY.md"
 /usr/bin/codesign --force --sign - --timestamp=none "$APP"
 /usr/bin/codesign --verify --deep --strict "$APP"
 "$APP/Contents/MacOS/ROGControl" --test-requests
